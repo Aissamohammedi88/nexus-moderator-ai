@@ -1,0 +1,141 @@
+```javascript
+// moderator.js
+// ═══════════════════════════════════════════════════════════════════════════
+// NEXUS MODERATOR — Node.js (Discord / Express)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class NexusModerator {
+constructor() {
+// Dictionnaires de mots-clés (à enrichir)
+this.scamKeywords = [
+"crypto", "bitcoin", "investissement garanti", "gain facile",
+"argent rapide", "gagnez", "félicitations vous avez gagné",
+"cliquez ici", "mot de passe", "carte bancaire", "urgent",
+"compte suspendu", "vérifiez votre compte"
+];
+
+this.adKeywords = [
+"achetez", "promo", "promotion", "offre spéciale", "réduction",
+"code promo", "livraison gratuite", "soldes", "abonnez-vous",
+"suivez-moi", "lien en bio"
+];
+
+// Historique en mémoire pour détecter le spam répétitif
+this.messageHistory = new Map();
+}
+
+// 1. Détection d'arnaque
+isScam(message) {
+const lower = message.toLowerCase();
+for (const word of this.scamKeywords) {
+if (lower.includes(word)) {
+return { flagged: true, reason: `Mot-clé d'arnaque: "${word}"` };
+}
+}
+// Détection de promesse de gain (ex: "Gagnez 500€")
+if (/(gagnez|gagner)\s+\d+/i.test(lower)) {
+return { flagged: true, reason: "Promesse de gain suspecte" };
+}
+return { flagged: false, reason: "OK" };
+}
+
+// 2. Détection de spam (répétition + majuscules)
+isSpam(message, userId) {
+// Répétition : même message envoyé plus de 3 fois
+if (!this.messageHistory.has(userId)) {
+this.messageHistory.set(userId, []);
+}
+const history = this.messageHistory.get(userId);
+if (history.includes(message)) {
+return { flagged: true, reason: "Message répété" };
+}
+history.push(message);
+if (history.length > 5) history.shift(); // Garde les 5 derniers
+
+// Majuscules excessives
+if (message.length > 10) {
+const upperCount = (message.match(/[A-Z]/g) || []).length;
+if (upperCount / message.length > 0.7) {
+return { flagged: true, reason: "Majuscules excessives" };
+}
+}
+// Caractères répétés (ex: "!!!!!!")
+if (/(.)\1{5,}/.test(message)) {
+return { flagged: true, reason: "Caractères répétés" };
+}
+return { flagged: false, reason: "OK" };
+}
+
+// 3. Détection de publicité
+isAd(message) {
+const lower = message.toLowerCase();
+for (const word of this.adKeywords) {
+if (lower.includes(word)) {
+return { flagged: true, reason: `Terme publicitaire: "${word}"` };
+}
+}
+// Plus d'un lien = suspect
+const links = message.match(/https?:\/\/[^\s]+/g) || [];
+if (links.length > 1) {
+return { flagged: true, reason: "Multiples liens détectés" };
+}
+return { flagged: false, reason: "OK" };
+}
+
+// 4. Modération globale
+moderate(message, userId = "default") {
+const scamCheck = this.isScam(message);
+if (scamCheck.flagged) return { action: "BLOCK", type: "SCAM", ...scamCheck };
+
+const spamCheck = this.isSpam(message, userId);
+if (spamCheck.flagged) return { action: "BLOCK", type: "SPAM", ...spamCheck };
+
+const adCheck = this.isAd(message);
+if (adCheck.flagged) return { action: "WARN", type: "AD", ...adCheck };
+
+return { action: "ALLOW", type: "OK", flagged: false, reason: "Message autorisé" };
+}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXEMPLE D'UTILISATION
+// ═══════════════════════════════════════════════════════════════════════════
+const moderator = new NexusModerator();
+
+const testMessages = [
+"Salut, on se voit demain ?",
+"Félicitations ! Vous avez gagné 1000€, cliquez ici !",
+"AAAAAAAAAAAAAAAAAAAA",
+"Code promo : -50% sur tout le site ! Livraison gratuite !",
+"Salut, on se voit demain ?" // Test répétition
+];
+
+console.log("=== NEXUS MODERATOR (Node.js) ===");
+testMessages.forEach((msg, index) => {
+const result = moderator.moderate(msg, "user_123");
+console.log(`[${index}] "${msg.substring(0, 30)}..."`);
+console.log(` → Action: ${result.action} | Type: ${result.type} | Raison: ${result.reason}\n`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTÉGRATION DISCORD (décommente si tu as discord.js)
+// ═══════════════════════════════════════════════════════════════════════════
+/*
+const { Client, GatewayIntentBits } = require('discord.js');
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
+client.on('messageCreate', message => {
+if (message.author.bot) return;
+const result = moderator.moderate(message.content, message.author.id);
+
+if (result.action === "BLOCK") {
+message.delete().catch(console.error);
+message.channel.send(`🚫 Message de ${message.author} supprimé : ${result.reason}`);
+} else if (result.action === "WARN") {
+message.reply(`⚠️ Attention, ce message ressemble à de la publicité.`);
+}
+});
+
+client.login('TON_TOKEN_ICI');
+*/
+```
