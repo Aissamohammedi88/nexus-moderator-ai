@@ -1,0 +1,38 @@
+# spam_filter.pyimport re
+
+def est_spam(message, historique_messages=[]):
+# 1. Détection de répétition
+if message in historique_messages[-3:]:
+return True, "Message répété récemment"
+
+# 2. Détection de majuscules excessives (plus de 70% du message)
+if len(message) > 10:
+majuscules = sum(1 for c in message if c.isupper())
+if (majuscules / len(message)) > 0.7:
+return True, "Utilisation excessive de majuscules"
+
+# 3. Détection de caractères répétés (ex: "AAAAAAA" ou "!!!!!!")
+if re.search(r'(.)\1{5,}', message):
+return True, "Caractères répétés de manière suspecte"
+
+# 4. Détection de liens suspects (raccourcisseurs)
+liens_suspects = [r'bit\.ly', r'tinyurl', r't\.co', r'goo\.gl']
+for lien in liens_suspects:
+if re.search(lien, message, re.IGNORECASE):
+return True, "Lien raccourci suspect"
+
+return False, "Message OK"
+
+# Test
+if __name__ == "__main__":
+tests = [
+"Salut, comment ça va ?",
+"AAAAAAAAAAAAAAAAAAAA",
+"Regarde ça : bit.ly/xyz123",
+"Salut, comment ça va ?" # Test répétition
+]
+historique = []
+for msg in tests:
+is_spam, raison = est_spam(msg, historique)
+print(f"[{is_spam}] '{msg[:30]}...' -> {raison}")
+historique.append(msg)
