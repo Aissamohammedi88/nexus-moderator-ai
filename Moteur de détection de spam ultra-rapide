@@ -1,0 +1,171 @@
+import java.util.*;
+import java.util.regex.*;
+import java.util.concurrent.*;
+
+/**
+ * NEXUS SPAM FILTER — JAVA EDITION
+ * Moteur de détection de spam ultra-rapide (Zero-Cloud, < 5ms).
+ * 
+ * Auteur : Aissa Mohammedi (DGK)
+ * Licence : NEXUS-OPEN-3.0
+ */
+public class NexusSpamFilter {
+
+    // 1. Règles Regex Pré-compilées (Performance)
+    private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s]+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PHONE_PATTERN = Pattern.compile("(\\+?\\d{1,3}[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}");
+    private static final Pattern CRYPTO_PATTERN = Pattern.compile("(?i)(bitcoin|btc|eth|crypto|wallet|giveaway|airdrop)");
+    private static final Pattern REPEAT_CHARS = Pattern.compile("(.)\\1{4,}"); // Ex: "!!!!!!" ou "aaaaa"
+    private static final Pattern EXCESS_EMOJI = Pattern.compile("[\\uD83C-\\uDBFF\\uDC00-\\uDFFF]");
+
+    // 2. Mots-clés suspects
+    private static final Set<String> SPAM_KEYWORDS = new HashSet<>(Arrays.asList(
+        "free", "winner", "prize", "click here", "buy now", "limited offer",
+        "act now", "guaranteed", "100%", "risk-free", "no cost", "earn money"
+    ));
+
+    /**
+     * Classe interne pour le résultat de l'analyse.
+     */
+    public static class SpamResult {
+        public final boolean isSpam;
+        public final int score;
+        public final List<String> reasons;
+
+        public SpamResult(boolean isSpam, int score, List<String> reasons) {
+            this.isSpam = isSpam;
+            this.score = score;
+            this.reasons = reasons;
+        }
+
+        @Override
+        public String toString() {
+            if (isSpam) {
+                return "🚫 SPAM DÉTECTÉ (Score: " + score + "/100) - Raisons: " + String.join(", ", reasons);
+            }
+            return "✅ LÉGITIME (Score: " + score + "/100)";
+        }
+    }
+
+    /**
+     * Analyse un message et retourne un score de spam.
+     */
+    public static SpamResult analyze(String text) {
+        if (text == null || text.isEmpty()) {
+            return new SpamResult(false, 0, new ArrayList<>());
+        }
+
+        int score = 0;
+        List<String> reasons = new ArrayList<>();
+
+        // Règle 1 : Longueur excessive ou nulle
+        if (text.length() < 3) {
+            score += 10;
+            reasons.add("Texte trop court");
+        } else if (text.length() > 2000) {
+            score += 20;
+            reasons.add("Texte trop long");
+        }
+
+        // Règle 2 : URLs suspectes
+        Matcher urlMatcher = URL_PATTERN.matcher(text);
+        int urlCount = 0;
+        while (urlMatcher.find()) urlCount++;
+        if (urlCount > 2) {
+            score += 30;
+            reasons.add("Multiples URLs (" + urlCount + ")");
+        }
+
+        // Règle 3 : Numéros de téléphone
+        if (PHONE_PATTERN.matcher(text).find()) {
+            score += 15;
+            reasons.add("Numéro de téléphone détecté");
+        }
+
+        // Règle 4 : Mots-clés crypto/arnaque
+        Matcher cryptoMatcher = CRYPTO_PATTERN.matcher(text);
+        if (cryptoMatcher.find()) {
+            score += 40;
+            reasons.add("Mots-clés crypto/arnaque");
+        }
+
+        // Règle 5 : Mots-clés spam
+        String lowerText = text.toLowerCase();
+        for (String keyword : SPAM_KEYWORDS) {
+            if (lowerText.contains(keyword)) {
+                score += 15;
+                reasons.add("Mot-clé: " + keyword);
+                break; // On ne compte qu'une fois
+            }
+        }
+
+        // Règle 6 : Répétition de caractères (!!!!, aaaaa)
+        if (REPEAT_CHARS.matcher(text).find()) {
+            score += 20;
+            reasons.add("Répétition excessive de caractères");
+        }
+
+        // Règle 7 : Excès d'emojis (souvent utilisé par les bots)
+        long emojiCount = EXCESS_EMOJI.matcher(text).results().count();
+        if (emojiCount > 5) {
+            score += 15;
+            reasons.add("Excès d'emojis (" + emojiCount + ")");
+        }
+
+        // Règle 8 : Ratio Majuscules/Minuscules (Criard)
+        long upperCount = text.chars().filter(Character::isUpperCase).count();
+        long letterCount = text.chars().filter(Character::isLetter).count();
+        if (letterCount > 10 && (double) upperCount / letterCount > 0.7) {
+            score += 20;
+            reasons.add("Texte majoritairement en MAJUSCULES");
+        }
+
+        // Limiter le score à 100
+        score = Math.min(score, 100);
+        boolean isSpam = score >= 50;
+
+        return new SpamResult(isSpam, score, reasons);
+    }
+
+    /**
+     * Test de performance (Benchmark).
+     */
+    public static void main(String[] args) {
+        System.out.println("⚡ NEXUS SPAM FILTER — JAVA BENCHMARK ⚡\n");
+
+        String[] testMessages = {
+            "Bonjour, comment allez-vous aujourd'hui ?",
+            "FÉLICITATIONS !!! Vous avez gagné 1 BTC GRATUIT !!! Cliquez ici : http://scam.com",
+            "Achetez maintenant nos produits à 100% garantis, offre limitée !!!",
+            "Salut, on se voit demain pour le projet ?",
+            "Crypto airdrop free giveaway! Send ETH to 0x123456789. Call +1 555-0199 NOW!"
+        };
+
+        // Test de performance
+        int iterations = 10000;
+        long startTime = System.nanoTime();
+
+        for (int i = 0; i < iterations; i++) {
+            for (String msg : testMessages) {
+                analyze(msg);
+            }
+        }
+
+        long endTime = System.nanoTime();
+        long durationMs = (endTime - startTime) / 1_000_000;
+        double avgTimeMs = (double) durationMs / (iterations * testMessages.length);
+
+        // Affichage des résultats
+        for (String msg : testMessages) {
+            System.out.println("Message: \"" + (msg.length() > 50 ? msg.substring(0, 50) + "..." : msg) + "\"");
+            System.out.println("   " + analyze(msg));
+            System.out.println();
+        }
+
+        System.out.println("📊 PERFORMANCE:");
+        System.out.println("   Itérations: " + iterations);
+        System.out.println("   Temps total: " + durationMs + " ms");
+        System.out.printf("   Temps moyen par analyse: %.4f ms%n", avgTimeMs);
+        System.out.println("   Vitesse: " + (int)(1000 / avgTimeMs) + " analyses/sec");
+    }
+}
