@@ -1,0 +1,179 @@
+```go
+// main.go
+// ═══════════════════════════════════════════════════════════════════════════
+// NEXUS MODERATOR — Go (API HTTP / Gin)
+// ═══════════════════════════════════════════════════════════════════════════
+
+package main
+
+import (
+"net/http"
+"regexp"
+"strings"
+"sync"
+
+"github.com/gin-gonic/gin"
+)
+
+// ModerationResult structure de réponse
+type ModerationResult struct {
+Action string `json:"action"` // BLOCK, WARN, ALLOW
+Type string `json:"type"` // SCAM, SPAM, AD, OK
+Reason string `json:"reason"`
+}
+
+// NexusModerator contient les règles et l'historique
+type NexusModerator struct {
+scamKeywords []string
+adKeywords []string
+history map[string][]string
+mu sync.Mutex // Pour la concurrence
+}
+
+func NewModerator() *NexusModerator {
+return &NexusModerator{
+scamKeywords: []string{
+"crypto", "bitcoin", "investissement garanti", "gain facile",
+"argent rapide", "gagnez", "félicitations vous avez gagné",
+"cliquez ici", "mot de passe", "carte bancaire", "urgent",
+"compte suspendu", "vérifiez votre compte",
+},
+adKeywords: []string{
+"achetez", "promo", "promotion", "offre spéciale", "réduction",
+"code promo", "livraison gratuite", "soldes", "abonnez-vous",
+"suivez-moi", "lien en bio",
+},
+history: make(map[string][]string),
+}
+}
+
+// isScam détecte les arnaques
+func (m *NexusModerator) isScam(message string) (bool, string) {
+lower := strings.ToLower(message)
+for _, word := range m.scamKeywords {
+if strings.Contains(lower, word) {
+return true, "Mot-clé d'arnaque: " + word
+}
+}
+// Promesse de gain (ex: "Gagnez 500€")
+reGain := regexp.MustCompile(`(?i)(gagnez|gagner)\s+\d+`)
+if reGain.MatchString(lower) {
+return true, "Promesse de gain suspecte"
+}
+return false, "OK"
+}
+
+// isSpam détecte le spam
+func (m *NexusModerator) isSpam(message, userID string) (bool, string) {
+m.mu.Lock()
+defer m.mu.Unlock()
+
+// Répétition
+userHistory := m.history[userID]
+for _, past := range userHistory {
+if past == message {
+return true, "Message répété"
+}
+}
+m.history[userID] = append(m.history[userID], message)
+if len(m.history[userID]) > 5 {
+m.history[userID] = m.history[userID][1:]
+}
+
+// Majuscules excessives
+if len(message) > 10 {
+upperCount := 0
+for _, c := range message {
+if c >= 'A' && c <= 'Z' {
+upperCount++
+}
+}
+if float64(upperCount)/float64(len(message)) > 0.7 {
+return true, "Majuscules excessives"
+}
+}
+
+// Caractères répétés
+reRepeat := regexp.MustCompile(`(.)\1{5,}`)
+if reRepeat.MatchString(message) {
+return true, "Caractères répétés"
+}
+return false, "OK"
+}
+
+// isAd détecte la publicité
+func (m *NexusModerator) isAd(message string) (bool, string) {
+lower := strings.ToLower(message)
+for _, word := range m.adKeywords {
+if strings.Contains(lower, word) {
+return true, "Terme publicitaire: " + word
+}
+}
+// Multiples liens
+reLinks := regexp.MustCompile(`https?://[^\s]+`)
+links := reLinks.FindAllString(message, -1)
+if len(links) > 1 {
+return true, "Multiples liens détectés"
+}
+return false, "OK"
+}
+
+// Moderate applique toute la logique
+func (m *NexusModerator) Moderate(message, userID string) ModerationResult {
+// 1. Arnaque (priorité max)
+if flagged, reason := m.isScam(message); flagged {
+return ModerationResult{Action: "BLOCK", Type: "SCAM", Reason: reason}
+}
+// 2. Spam
+if flagged, reason := m.isSpam(message, userID); flagged {
+return ModerationResult{Action: "BLOCK", Type: "SPAM", Reason: reason}
+}
+// 3. Publicité
+if flagged, reason := m.isAd(message); flagged {
+return ModerationResult{Action: "WARN", Type: "AD", Reason: reason}
+}
+return ModerationResult{Action: "ALLOW", Type: "OK", Reason: "Message autorisé"}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// API HTTP AVEC GIN
+// ═══════════════════════════════════════════════════════════════════════════
+func main() {
+moderator := NewModerator()
+r := gin.Default()
+
+// Endpoint POST /moderate
+r.POST("/moderate", func(c *gin.Context) {
+var req struct {
+Message string `json:"message"`
+UserID string `json:"user_id"`
+}
+if err := c.ShouldBindJSON(&req); err != nil {
+c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+return
+}
+if req.UserID == "" {
+req.UserID = "anonymous"
+}
+
+result := moderator.Moderate(req.Message, req.UserID)
+c.JSON(http.StatusOK, result)
+})
+
+// Health check
+r.GET("/health", func(c *gin.Context) {
+c.JSON(http.StatusOK, gin.H{"status": "ok"})
+})
+
+println("🤖 NEXUS MODERATOR (Go) démarré sur http://localhost:8081")
+r.Run(":8081")
+}
+```
+
+Comment tester l'API Go :
+
+```bash
+curl -X POST http://localhost:8081/moderate \
+-H "Content-Type: application/json" \
+-d '{"message": "Félicitations ! Gagnez 1000€ en crypto", "user_id": "user_123"}'
+```
