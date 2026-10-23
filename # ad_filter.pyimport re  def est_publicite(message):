@@ -1,0 +1,37 @@
+# ad_filter.pyimport re
+
+def est_publicite(message):
+message_lower = message.lower()
+
+# Mots-clés publicitaires
+mots_cles_pub = [
+"achetez", "promo", "promotion", "offre spéciale", "réduction",
+"code promo", "livraison gratuite", "soldes", "abonnez-vous",
+"suivez-moi", "mon produit", "ma boutique", "lien en bio"
+]
+
+for mot in mots_cles_pub:
+if mot in message_lower:
+return True, f"Terme publicitaire détecté : '{mot}'"
+
+# Détection de liens (souvent utilisés pour la pub)
+liens = re.findall(r'(https?://[^\s]+)', message)
+if len(liens) > 1: # Plus d'un lien dans un seul message
+return True, "Multiples liens détectés"
+
+# Détection de hashtags promotionnels
+if len(re.findall(r'#\w+', message)) > 3:
+return True, "Trop de hashtags (style spam publicitaire)"
+
+return False, "Message OK"
+
+# Test
+if __name__ == "__main__":
+tests = [
+"J'ai acheté un nouveau téléphone hier.",
+"Code promo : -50% sur tout le site ! Livraison gratuite !",
+"Suivez-moi sur mon lien en bio pour ma boutique"
+]
+for msg in tests:
+is_pub, raison = est_publicite(msg)
+print(f"[{is_pub}] '{msg}' -> {raison}")
